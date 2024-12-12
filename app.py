@@ -48,5 +48,5 @@ if __name__ == "__main__":
         final_response = response["messages"][-1].content
         decoded_response = decodeResponse(final_response)
         print("**********************************************************")
-        print(decoded_response['answer'])
+        print(decoded_response)
         print("**********************************************************")
