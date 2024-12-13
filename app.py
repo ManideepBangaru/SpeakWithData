@@ -108,10 +108,20 @@ with gr.Blocks() as app:
             query_button = gr.Button("Submit")
         
         with gr.Column():
-            response_output = gr.Markdown(label="Response (Text)")
+            text_output = gr.Markdown(label="Response (Text)")
             plot_output = gr.Image(label="Generated Plot")
+    
+    def process_response(file, query):
+        response_text, response_plot = gradio_app(file, query)
+        # Dynamically update visibility and content
+        text_visible = response_text is not None and response_text.strip() != ""
+        plot_visible = response_plot is not None
+        return (
+            gr.update(value=response_text or "No text response generated.", visible=text_visible),
+            gr.update(value=response_plot, visible=plot_visible)
+        )
 
-    query_button.click(gradio_app, inputs=[file_input, query_input], outputs=[response_output,plot_output])
+    query_button.click(process_response, inputs=[file_input, query_input], outputs=[text_output,plot_output])
 
 if __name__ == "__main__":
     app.launch()
