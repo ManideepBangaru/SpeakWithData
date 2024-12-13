@@ -1,23 +1,30 @@
 from src.get_csv import getCSV
 from src.define_llm import defineLLM
-from src.define_pandas_agent import definePandasAgent
+# from src.define_pandas_agent import definePandasAgent
 from src.load_prompt_template import loadPromptTemplate
 from src.define_assistant import defineAssistant
 from src.build_langgraph import buildLangGraph
 from src.decode_response import decodeResponse
+# from src.prepare_output import prepareOutput
+from src.save_plotly_plot import savePlotlyPlot
 from langchain.tools import Tool
+from langchain.agents import AgentType
 from langgraph.graph.message import MessagesState
 from langchain_core.output_parsers import StrOutputParser
+from langchain_experimental.agents import create_pandas_dataframe_agent
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 import pandas as pd
 import gradio as gr
+import io
+import matplotlib.pyplot as plt
+from PIL import Image
 
 # Global variable to cache the dataset and its path
 cached_df = None
 cached_file_path = None
 
 def run_app(file, query):
-    global cached_df, cached_file_path
+    global cached_df, cached_file_path, llm_model
     try:
         # Check if the file path has changed
         if cached_file_path != file.name:
@@ -31,9 +38,22 @@ def run_app(file, query):
         else:
             print("Using cached dataframe")
 
-        llm = defineLLM("gpt-4o-mini",temperature=0)
+        llm_model = defineLLM("gpt-4o-mini",temperature=0)
 
-        pandasAgent = definePandasAgent(llm, cached_df)
+        # Define the Pandas DataFrame Tool
+        def pandasAgent(input_query: str):
+            pandas_agent = create_pandas_dataframe_agent(
+                llm = llm_model, 
+                df=cached_df,
+                allow_dangerous_code=True,
+                agent_type=AgentType.OPENAI_FUNCTIONS,
+                verbose=False)
+            response = pandas_agent.invoke({
+                "input": input_query,
+                "agent_scratchpad": f"Human: {input_query}\nAI: To answer this question, I need to use Python to analyze the dataframe. I'll use the python_repl_ast tool.\n\nAction: python_repl_ast\nAction Input: ",
+            })
+            return response
+
         pandas_tool = Tool(
             name = "PandasAgentTool",
             func = pandasAgent,
@@ -43,11 +63,9 @@ def run_app(file, query):
         prompt_template = loadPromptTemplate("data/prompt_template.txt")
 
         tools = [pandas_tool]
-        llm_with_tools = llm.bind_tools(tools)
+        llm_with_tools = llm_model.bind_tools(tools)
 
-        # assistant = defineAssistant(llm_with_tools, state)
-
-        sys_msg = SystemMessage(content="You are a helpful assistant tasked with bringing insights and doing mathematical operations on datasets")
+        sys_msg = SystemMessage(content="You are a helpful assistant tasked with bringing insights")
         def assistant(state: MessagesState):
             return {"messages": [llm_with_tools.invoke([sys_msg] + state["messages"])]}
 
@@ -56,9 +74,7 @@ def run_app(file, query):
         messages = [HumanMessage(content=str(prompt_template) + str(query))]
         response = react_graph.invoke({"messages": messages})
         final_response = response["messages"][-1].content
-        decoded_response = decodeResponse(final_response)
-        return decoded_response["answer"]
-    
+        return final_response    
     except Exception as e:
         return f"Error: {e}", None
 
@@ -66,8 +82,19 @@ def run_app(file, query):
 def gradio_app(file, query):
     if file is None or query.strip() == "":
         return "Please upload a CSV file and provide a query.", None
-    response_ = run_app(file, query)
-    return response_
+    prepared_response = run_app(file, query)
+    # Check for plot generation
+    buf = io.BytesIO()
+    if plt.get_fignums():  # If Matplotlib figures are generated
+        plt.savefig(buf, format="png")
+        buf.seek(0)
+        plt.close()  # Close to free memory
+        # Convert the buffer into a PIL image
+        plot_image = Image.open(buf)
+        return prepared_response, plot_image
+    else:
+        return prepared_response, None
+
 
 # Create Gradio components
 with gr.Blocks() as app:
@@ -81,9 +108,10 @@ with gr.Blocks() as app:
             query_button = gr.Button("Submit")
         
         with gr.Column():
-            response_output = gr.Markdown(label="Response")
+            response_output = gr.Markdown(label="Response (Text)")
+            plot_output = gr.Image(label="Generated Plot")
 
-    query_button.click(gradio_app, inputs=[file_input, query_input], outputs=[response_output])
+    query_button.click(gradio_app, inputs=[file_input, query_input], outputs=[response_output,plot_output])
 
 if __name__ == "__main__":
     app.launch()
