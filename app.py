@@ -98,7 +98,7 @@ def gradio_app(file, query):
 
 # Create Gradio components
 with gr.Blocks() as app:
-    gr.Markdown("Speak With Data")
+    gr.Markdown("<h1 style='text-align: center'> 🧑‍💻 Speak With Data 👩‍💻 </h1>")
     gr.Markdown("Upload a CSV file, enter a query, and get a response based on the data in the file.")
 
     with gr.Row():
